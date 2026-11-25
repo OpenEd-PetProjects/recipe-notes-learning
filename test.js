@@ -1,0 +1,30 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const code = fs.readFileSync('script.js', 'utf8');
+function setup(initial = null, failWrite = false) {
+  let saved = initial;
+  const elements = Object.fromEntries(['recipe-form', 'title', 'description', 'recipes', 'message'].map(id => [id, {}]));
+  const [form, title, description, list] = ['recipe-form', 'title', 'description', 'recipes'].map(id => elements[id]);
+  form.addEventListener = (_, fn) => { form.submit = fn; };
+  form.reset = () => { title.value = ''; description.value = ''; };
+  title.focus = () => {};
+  list.replaceChildren = (...items) => { list.items = items; };
+  const document = { querySelector: selector => elements[selector.slice(1)], createElement: () => ({ append(...children) { this.children = children; } }) };
+  const localStorage = { getItem: () => saved, setItem: (_, value) => { if (failWrite) throw Error(); saved = value; } };
+  vm.runInNewContext(code, { document, localStorage });
+  return { elements, add(name, details) { title.value = name; description.value = details; form.submit({ preventDefault() {} }); }, saved: () => saved };
+}
+const app = setup();
+app.add('Суп', 'Овощи и вода');
+assert.equal(app.elements.recipes.items.length, 1);
+assert.equal(setup(app.saved()).elements.recipes.items.length, 1);
+app.add('   ', 'Описание');
+app.add('Название', '  ');
+assert.equal(app.elements.recipes.items.length, 1);
+const invalid = setup('{broken');
+invalid.add('Суп', 'Вода');
+assert.equal(invalid.saved(), '{broken');
+const failed = setup(null, true);
+failed.add('Суп', 'Вода');
+assert.equal(failed.elements.recipes.items.length, 0);
